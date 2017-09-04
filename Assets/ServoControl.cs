@@ -10,18 +10,19 @@ using System;
  * ServoControl
  * 
  * Controls a Telemetrics PT-LP pan/tilt camera head using the serial protocol
- * established in the user manual.
+ * established in the user manual. Allows user to enter a device address,
+ * connect to the device, drive it around, and stop it.
  * 
  */
 
 public class ServoControl : MonoBehaviour
 {
-
 	// GUI
 	public Slider tiltSlider;
 	public Slider panSlider;
 	public Text panPositionText;
 	public Text tiltPositionText;
+	public InputField deviceAddressInput;
 
 	// Slider values
 	int lastTiltValue = 0;
@@ -36,44 +37,65 @@ public class ServoControl : MonoBehaviour
 	float delayInSecondsForPositionUpdate = .050f;
 
 	SerialPort sp;
-	string deviceName = "/dev/tty.usbserial-FT0EGQ74";
-	// TODO make this an option the user can change
-
-	// Initizlie serial port and enable camera
-	void Start ()
-	{
-		sp = new SerialPort (deviceName, 9600, Parity.None, 8, StopBits.One);
-		sp.Open ();
-		// TODO handle serial port exceptions
-		sp.ReadTimeout = 500;
-		sp.NewLine = "\r";
-		StopMovement ();
-		EnableCamera ();
-	}
+	Boolean portOpened = false;
+	string deviceAddress = "";
 
 	// Main loop
 	public void Update ()
 	{
-						
-		// TILT see if slider value has changed
-		if ((int)tiltSlider.value != lastTiltValue) {
-			sp.Write ("T " + (int)tiltSlider.value + "\r");
-			lastTiltValue = (int)tiltSlider.value;
+		if (portOpened) {
+			// TODO periodically check if port is opened
+
+			// TILT see if slider value has changed
+			if ((int)tiltSlider.value != lastTiltValue) {
+				sp.Write ("T " + (int)tiltSlider.value + "\r");
+				lastTiltValue = (int)tiltSlider.value;
+			}
+
+			// PAN see if slider value has changed
+			if ((int)panSlider.value != lastPanValue) {
+				sp.Write ("P " + (int)panSlider.value + "\r");
+				lastPanValue = (int)panSlider.value;
+			}
+
+			// Get position from device
+			if ((Time.fixedTime - lastTimePositionUpdated) > delayInSecondsForPositionUpdate) {
+				GetHeadPosition ();
+				lastTimePositionUpdated = Time.fixedTime;
+			}
 		}
+	}
 
-		// PAN see if slider value has changed
-		if ((int)panSlider.value != lastPanValue) {
-			sp.Write ("P " + (int)panSlider.value + "\r");
-			lastPanValue = (int)panSlider.value;
-
+	/*
+	 * Connect()
+	 * 
+	 * Attempts to setup a serial connection with device, using the address
+	 * entered by the user into the input field.
+	 * 
+	 */
+	public void Connect() {
+		// If no address was entered
+		if (deviceAddressInput.text == "") {
+			UnityEditor.EditorUtility.DisplayDialog ("Device address needed", "Please enter a device address and reconnect.", "Ok");
+		} 
+		else {
+			// Set device name to whatever the user entered
+			// TODO add some validation for address addresses or give a list of connected devices
+			deviceAddress = deviceAddressInput.text;
+			// Parameters needed according to the user manual
+			sp = new SerialPort (deviceAddress, 9600, Parity.None, 8, StopBits.One);
+			try {
+				sp.Open ();
+				portOpened = true;
+				Debug.Log ("Port Opened");
+				sp.ReadTimeout = 500;
+				sp.NewLine = "\r";
+				StopMovement ();
+				EnableCamera ();
+			} catch (Exception) {
+				UnityEditor.EditorUtility.DisplayDialog ("No connection", "Unable to connect. Connect cables, check address, and retry.", "Ok");
+			}	
 		}
-
-		// Get position from device
-		if ((Time.fixedTime - lastTimePositionUpdated) > delayInSecondsForPositionUpdate) {
-			GetHeadPosition ();
-			lastTimePositionUpdated = Time.fixedTime;
-		}
-
 	}
 
 	public void StopMovement ()
@@ -83,6 +105,9 @@ public class ServoControl : MonoBehaviour
 		sp.DiscardOutBuffer ();
 		// Write stop command
 		sp.WriteLine ("R\r");
+		// Put sliders at the 0 velocity position
+		panSlider.value = 16383;
+		tiltSlider.value = 16383;
 	}
 
 	public void EnableCamera ()
@@ -104,20 +129,22 @@ public class ServoControl : MonoBehaviour
 		// Clear buffers
 		sp.DiscardOutBuffer ();
 		sp.DiscardInBuffer ();
-		// "pt\r" will return pan and tilt's positions in one packet
+
+		// Command string "pt\r" will return pan and tilt's positions in one packet
 		sp.WriteLine ("pt\r");
 		string valRead = sp.ReadTo ("\r");
+
 		if (!valRead.Equals (" ") && !valRead.Equals("")) {
 			String[] vals = valRead.Split (' ');
 			if (vals.Length >= 2) {
+				// Update interally saved positions
 				lastReceivedPanPosition = Convert.ToInt32 (vals [0]);
 				lastReceivedTiltPosition = Convert.ToInt32 (vals [1]);
+				// Update GUI
 				tiltPositionText.text = "" + lastReceivedTiltPosition;
 				panPositionText.text = "" + lastReceivedPanPosition;
 			}
 		}
 
 	}
-
-
 }
