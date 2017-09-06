@@ -23,6 +23,9 @@ public class ServoControl : MonoBehaviour
 	public Text panPositionText;
 	public Text tiltPositionText;
 	public InputField deviceAddressInput;
+	public InputField endPanPositionInput;
+	public InputField endTiltPositionInput;
+	public InputField durationInput;
 
 	// Slider values
 	int lastTiltValue = 0;
@@ -31,6 +34,13 @@ public class ServoControl : MonoBehaviour
 	// Position values received from device
 	int lastReceivedPanPosition = 0;
 	int lastReceivedTiltPosition = 0;
+
+	// Target positions for move
+	int startPanPosition;
+	int startTiltPosition;
+	int endPanPosition;
+	int endTiltPosition;
+	Boolean moveRunning = false;
 
 	// Time
 	float lastTimePositionUpdated = 0;
@@ -44,18 +54,28 @@ public class ServoControl : MonoBehaviour
 	public void Update ()
 	{
 		if (portOpened) {
-			// TODO periodically check if port is opened
+			// TODO periodically check if packets are being sent/received
 
-			// TILT see if slider value has changed
-			if ((int)tiltSlider.value != lastTiltValue) {
-				sp.Write ("T " + (int)tiltSlider.value + "\r");
-				lastTiltValue = (int)tiltSlider.value;
-			}
+			// Move running mode
+			if (moveRunning) {
+				// are we there yet?
+					// if so, quit running the move
+			} 
 
-			// PAN see if slider value has changed
-			if ((int)panSlider.value != lastPanValue) {
-				sp.Write ("P " + (int)panSlider.value + "\r");
-				lastPanValue = (int)panSlider.value;
+			// Joystick mode
+			else {
+
+				// TILT see if slider value has changed
+				if ((int)tiltSlider.value != lastTiltValue) {
+					sp.Write ("T " + (int)tiltSlider.value + "\r");
+					lastTiltValue = (int)tiltSlider.value;
+				}
+
+				// PAN see if slider value has changed
+				if ((int)panSlider.value != lastPanValue) {
+					sp.Write ("P " + (int)panSlider.value + "\r");
+					lastPanValue = (int)panSlider.value;
+				}
 			}
 
 			// Get position from device
@@ -96,6 +116,27 @@ public class ServoControl : MonoBehaviour
 				UnityEditor.EditorUtility.DisplayDialog ("No connection", "Unable to connect. Connect cables, check address, and retry.", "Ok");
 			}	
 		}
+	}
+
+	/*
+	 * SetupMove()
+	 * 
+	 * Run a basic A-B movement, starting at the head's current position
+	 * and working towards an end position over a given duration.
+	 * 
+	 */
+	public void StartMove() {
+		StopMovement ();
+		int duration = Convert.ToInt32(durationInput.text);
+		endPanPosition = Convert.ToInt32 (endPanPositionInput);
+		endTiltPosition = Convert.ToInt32 (endTiltPositionInput);
+		// Calculate velocity needed for move
+		// TODO figure out the relationship between position units reported and velocity. Below is a roughed out calculation.
+		int panVelocity = (int)((endPanPosition - lastReceivedPanPosition) / duration); // Map from 0-32767
+		int tiltVelocity = (int)((endTiltPosition - lastReceivedTiltPosition) / duration); // Map from 0-32767
+		sp.Write ("P " + panVelocity + "\r");
+		sp.Write ("T " + tiltVelocity + "\r");
+		moveRunning = true;
 	}
 
 	public void StopMovement ()
