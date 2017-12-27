@@ -14,6 +14,7 @@ using System;
  * connect to the device, drive it around, do basic A-B movement, and stop movement.
  * 
  */
+using System.Text.RegularExpressions;
 
 public class ServoControl : MonoBehaviour
 {
@@ -22,6 +23,8 @@ public class ServoControl : MonoBehaviour
 	public Slider panSlider;
 	public Text panPositionText;
 	public Text tiltPositionText;
+	public Text panVelocityText;
+	public Text tiltVelocityText;
 	public InputField deviceAddressInput;
 	public InputField endPanPositionInput;
 	public InputField endTiltPositionInput;
@@ -42,51 +45,58 @@ public class ServoControl : MonoBehaviour
 	int endTiltPosition;
 	Boolean moveRunning = false;
 
-	int maxPanVelocity = 1000; // temp
-	int maxTiltVelocity = 1000; // temp
+	float maxPanVelocity = 1000f;
+	// temp
+	float maxTiltVelocity = 1000f;
+	// temp
+
+	float calibMoveDuration = 1.0f;
 
 	// Time
 	float lastTimePositionUpdated = 0;
-	float delayInSecondsForPositionUpdate = .050f;
+	float delayInSecondsForPositionUpdate = 1f;
 
 	SerialPort sp;
 	Boolean portOpened = false;
 	string deviceAddress = "";
+
+	// TODO remove this. for dev purposes only.
+	public void Start ()
+	{
+		deviceAddressInput.text = "/dev/tty.usbserial-FT0EGQ74";
+		Connect ();
+	}
 
 	// Main loop
 	public void Update ()
 	{
 		if (portOpened) {
 			// TODO periodically check if packets are being sent/received
-
-			// Move running mode
 			if (moveRunning) {
-				// are we there yet?
-				// if so, quit running the move
-			} 
+			}
+			// TILT see if slider value has changed
+			else if ((int)tiltSlider.value != lastTiltValue) {
+				print ("tiltSlider.value: " + tiltSlider.value);
+				sp.Write ("T " + (int)tiltSlider.value + "\r");
+				lastTiltValue = (int)tiltSlider.value;
+			}
 
-			// Joystick mode
-			else {
-
-				// TILT see if slider value has changed
-				if ((int)tiltSlider.value != lastTiltValue) {
-					sp.Write ("T " + (int)tiltSlider.value + "\r");
-					lastTiltValue = (int)tiltSlider.value;
-				}
-
-				// PAN see if slider value has changed
-				if ((int)panSlider.value != lastPanValue) {
-					sp.Write ("P " + (int)panSlider.value + "\r");
-					lastPanValue = (int)panSlider.value;
-				}
+			// PAN see if slider value has changed
+			else if ((int)panSlider.value != lastPanValue) {
+				print ("panSlider.value: " + panSlider.value);
+				sp.Write ("P " + (int)panSlider.value + "\r");
+				lastPanValue = (int)panSlider.value;
 			}
 
 			// Get position from device
-			if ((Time.fixedTime - lastTimePositionUpdated) > delayInSecondsForPositionUpdate) {
-				GetHeadPosition ();
+			// if more than delay seconds have passed, update position
+			else if ((Time.fixedTime - lastTimePositionUpdated) > delayInSecondsForPositionUpdate) {
+				GetHeadPosition ();	
 				lastTimePositionUpdated = Time.fixedTime;
 			}
 		}
+
+			
 	}
 
 	/*
@@ -121,71 +131,76 @@ public class ServoControl : MonoBehaviour
 		}
 	}
 
-	public void Calibrate (float moveTime)
+	public void Calibrate ()
 	{
-		// Move to home position so we don't hit limit switches.
-		MoveToPosition(0, 0, 1);
+		print ("CALIBRATE");
+//		// Move to home position so we don't hit limit switches.
+//		MoveToPosition(0, 0, 1);
 
 		// Get current position
 		int[] lastPositions = GetHeadPosition ();
+		print ("last positions: " + lastPositions [0] + " " + lastPositions [1]);
 		// Move at max speed for moveTime
+		moveRunning = true;
 		sp.Write ("P " + 32767 + " T " + 32767 + "\r");
-		while (moveTime > 0) {
-			moveTime -= Time.deltaTime;
+		float counter = 0;
+		while (counter < calibMoveDuration) {
+			counter += Time.deltaTime;
 		}
 		StopMovement ();
 		int[] newPositions = GetHeadPosition ();
-
+		print ("new positions: " + newPositions [0] + " " + newPositions [1]);
 		// calculate max velocities
-		maxPanVelocity = (int)(Math.Abs (lastPositions [0] - newPositions [0]) / moveTime); // returned as "position units / sec"
-		maxTiltVelocity = (int)(Math.Abs (lastPositions [1] - newPositions [1]) / moveTime); // returned as "position units / sec"
+		maxPanVelocity = (Math.Abs (lastPositions [0] - newPositions [0]) / calibMoveDuration); // returned as "position units / sec"
+		maxTiltVelocity = (Math.Abs (lastPositions [1] - newPositions [1]) /  calibMoveDuration); // returned as "position units / sec"
+		print ("Max pan velocity: " + maxPanVelocity + " Max tilt velocity: " + maxTiltVelocity);
 		// note: Units/sec is being calculated with a basic averaging, which is assuming that
 		// speed changes linearly. that may not be true.
 	}
 
 	/*
-	 * SetupMove()
+	 * MoveToPosition()
 	 * 
 	 * Run a basic A-B movement, starting at the head's current position
 	 * and working towards an end position over a given duration.
 	 * 
 	 */
-	public void MoveToPosition(int panPosition, int tiltPosition, float moveDuration)
-	{
-		StopMovement ();
-
-		// Get input from GUI
-		float duration = float.Parse(durationInput.text);
-		endPanPosition = Convert.ToInt32 (endPanPositionInput);
-		endTiltPosition = Convert.ToInt32 (endTiltPositionInput);
-
-		// Calculate velocity needed for move in terms of units/sec
-		int panVelocity = (int)((endPanPosition - lastReceivedPanPosition) / duration); // Map from 0-32767
-		int tiltVelocity = (int)((endTiltPosition - lastReceivedTiltPosition) / duration); // Map from 0-32767
-
-		// Map velocity to the cooresponding serial parameter
-		if (panVelocity < 0) {
-			panVelocity = Math.Abs(16383 - (panVelocity / maxPanVelocity) * 16383);
-		} else {
-			panVelocity = Math.Abs(16383 + (panVelocity / maxPanVelocity) * 16383);
+		public void MoveToPosition(int panPosition, int tiltPosition, float moveDuration)
+		{
+			StopMovement ();
+	
+			// Get input from GUI
+			float duration = float.Parse(durationInput.text);
+			endPanPosition = Convert.ToInt32 (panPosition);
+			endTiltPosition = Convert.ToInt32 (endTiltPositionInput);
+	
+			// Calculate velocity needed for move in terms of units/sec
+			int panVelocity = (int)((endPanPosition - lastReceivedPanPosition) / duration); // Map from 0-32767
+			int tiltVelocity = (int)((endTiltPosition - lastReceivedTiltPosition) / duration); // Map from 0-32767
+	
+			// Map velocity to the cooresponding serial parameter
+			if (panVelocity < 0) {
+			panVelocity = Math.Abs((int)(16383 - (panVelocity / maxPanVelocity) * 16383));
+			} else {
+			panVelocity = Math.Abs((int)(16383 + (panVelocity / maxPanVelocity) * 16383));
+			}
+			if (tiltVelocity < 0) {
+					tiltVelocity = Math.Abs((int)(16383 - (tiltVelocity / maxTiltVelocity) * 16383));
+			} else {
+					tiltVelocity = Math.Abs((int)(16383 - (tiltVelocity / maxTiltVelocity) * 16383));
+			}
+	
+			sp.Write ("P " + panVelocity + "T " + tiltVelocity + "\r");
+			// Wait for move to complete
+			float lastPositionPoll = 0;
+			float pollingInterval = 1;
+			moveRunning = true;
+			while (duration > 0) {
+				// Poll for position every X m
+				duration -= Time.deltaTime; // in seconds
+			}
+			moveRunning = false;
 		}
-		if (tiltVelocity < 0) {
-			tiltVelocity = Math.Abs(16383 - (tiltVelocity / maxTiltVelocity) * 16383);
-		} else {
-			tiltVelocity = Math.Abs(16383 - (tiltVelocity / maxTiltVelocity) * 16383);
-		}
-
-		sp.Write ("P " + panVelocity + "T " + tiltVelocity + "\r");
-		// Wait for move to complete
-		float lastPositionPoll = 0;
-		float pollingInterval = 1;
-		moveRunning = true;
-		while (duration > 0) {
-			// Poll for position every X m
-			duration -= Time.deltaTime; // in seconds
-		}
-		moveRunning = false;
-	}
 
 	public void StopMovement ()
 	{
@@ -197,6 +212,7 @@ public class ServoControl : MonoBehaviour
 		// Put sliders at the neutral velocity position
 		panSlider.value = 16383;
 		tiltSlider.value = 16383;
+		moveRunning = false;
 	}
 
 	public void EnableCamera ()
@@ -213,32 +229,50 @@ public class ServoControl : MonoBehaviour
 		sp.Close ();
 	}
 
+	string valRead = "";
+	int[] falseReturn = { -1, -1 };
+
 	int[] GetHeadPosition ()
 	{
+		valRead = "";
+
 		// Clear buffers
 		sp.DiscardOutBuffer ();
 		sp.DiscardInBuffer ();
 
 		// Command string "pt\r" will return pan and tilt's positions in one packet
 		sp.WriteLine ("pt\r");
-		string valRead = sp.ReadTo ("\r");
+		float test = Time.fixedTime;
+		valRead = sp.ReadTo ("\r");
+		//print ("valRead: " + valRead);
+		// if correct response was received, validate the packet:
 
-		if (!valRead.Equals (" ") && !valRead.Equals ("")) {
-			String[] vals = valRead.Split (' ');
-			if (vals.Length >= 2) {
-				// Update interally saved positions
-				lastReceivedPanPosition = Convert.ToInt32 (vals [0]);
-				lastReceivedTiltPosition = Convert.ToInt32 (vals [1]);
-				// Update GUI
-				tiltPositionText.text = "" + lastReceivedTiltPosition;
-				panPositionText.text = "" + lastReceivedPanPosition;
-				return new int[]{ lastReceivedPanPosition, lastReceivedTiltPosition };
-			} else {
-				return new int[]{ -1, -1 };
-			}
+		String[] vals = valRead.Split (' ');
+		if (isValidPosition (vals)) {
+			//print ("Vals: " + vals [0] + " " + vals [1]);
+			// Update interally saved positions
+			lastReceivedPanPosition = Convert.ToInt32 (vals [0]);
+			lastReceivedTiltPosition = Convert.ToInt32 (vals [1]);
+			// Update GUI
+			tiltPositionText.text = "" + lastReceivedTiltPosition;
+			panPositionText.text = "" + lastReceivedPanPosition;
+			return new int[]{ lastReceivedPanPosition, lastReceivedTiltPosition };
 		} else {
-			return new int[]{-1, -1};
+			return falseReturn;
 		}
-
+	}
+		
+	// Verify that position data received is valid (2 values, only numbers)
+	bool isValidPosition (string[] vals)
+	{
+		if (vals.Length >= 2 &&
+		    Regex.IsMatch (vals [0], @"^[0-9]+$") &&
+		    Regex.IsMatch (vals [1], @"^[0-9]+$")) {
+			return true;
+		} else {
+			print ("INVALID POSITION");
+			return false;
+		}
 	}
 }
+
