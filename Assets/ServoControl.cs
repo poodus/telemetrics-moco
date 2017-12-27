@@ -50,7 +50,9 @@ public class ServoControl : MonoBehaviour
 	float maxTiltVelocity = 1000f;
 	// temp
 
-	float calibMoveDuration = 1.0f;
+	float calibMoveDuration = 3.0f;
+	bool calibrationInProgress = false;
+	bool calibrationFirstLoop = true;
 
 	// Time
 	float lastTimePositionUpdated = 0;
@@ -72,11 +74,10 @@ public class ServoControl : MonoBehaviour
 		float maxVel = 32767;
 		float minVelOut = -1000;
 		float maxVelOut = 1000;
-		float result = minVelOut + (maxVelOut - minVelOut) * ((input - minVel) / (maxVel - minVel));
-		print(result);
-		return result;
+		return minVelOut + (maxVelOut - minVelOut) * ((input - minVel) / (maxVel - minVel));
 	}
-
+	float counter = 0f;
+	int[] lastPositions;
 	// Main loop
 	public void Update ()
 	{
@@ -106,6 +107,41 @@ public class ServoControl : MonoBehaviour
 					GetHeadPosition ();	
 					lastTimePositionUpdated = Time.fixedTime;
 				}
+			}
+			if (calibrationInProgress) {
+				if (calibrationFirstLoop) {
+					calibrationFirstLoop = false;
+					// Get current position
+					lastPositions = GetHeadPosition ();
+					print ("last positions: " + lastPositions [0] + " " + lastPositions [1]);
+
+					// Move at max speed for moveTime
+					moveRunning = true;
+					sp.Write ("P " + 0 + " T " + 0 + "\r");
+
+					counter = 0f;
+				}
+				// TODO move to known position to avoid hitting limit switches
+
+				if(counter < calibMoveDuration) {
+					counter += Time.deltaTime;
+					print ("Time left: " + (calibMoveDuration - counter));
+				}
+				else {
+					StopMovement ();
+					calibrationInProgress = false;
+					calibrationFirstLoop = true;
+
+					int[] newPositions = GetHeadPosition ();
+					print ("new positions: " + newPositions [0] + " " + newPositions [1]);
+					// calculate max velocities
+					maxPanVelocity = (Math.Abs (lastPositions [0] - newPositions [0]) / calibMoveDuration); // returned as "position units / sec"
+					maxTiltVelocity = (Math.Abs (lastPositions [1] - newPositions [1]) /  calibMoveDuration); // returned as "position units / sec"
+					print ("Max pan velocity: " + maxPanVelocity + " Max tilt velocity: " + maxTiltVelocity);
+					// note: Units/sec is being calculated with a basic averaging, which is assuming that
+					// speed changes linearly. that may not be true.
+				}
+				
 			}
 		}
 	}
@@ -145,28 +181,7 @@ public class ServoControl : MonoBehaviour
 	public void Calibrate ()
 	{
 		print ("CALIBRATE");
-
-		// TODO move to known position to avoid hitting limit switches
-
-		// Get current position
-		int[] lastPositions = GetHeadPosition ();
-		print ("last positions: " + lastPositions [0] + " " + lastPositions [1]);
-		// Move at max speed for moveTime
-		moveRunning = true;
-		sp.Write ("P " + 32767 + " T " + 32767 + "\r");
-		float counter = 0;
-		while (counter < calibMoveDuration) {
-			counter += Time.deltaTime;
-		}
-		StopMovement ();
-		int[] newPositions = GetHeadPosition ();
-		print ("new positions: " + newPositions [0] + " " + newPositions [1]);
-		// calculate max velocities
-		maxPanVelocity = (Math.Abs (lastPositions [0] - newPositions [0]) / calibMoveDuration); // returned as "position units / sec"
-		maxTiltVelocity = (Math.Abs (lastPositions [1] - newPositions [1]) /  calibMoveDuration); // returned as "position units / sec"
-		print ("Max pan velocity: " + maxPanVelocity + " Max tilt velocity: " + maxTiltVelocity);
-		// note: Units/sec is being calculated with a basic averaging, which is assuming that
-		// speed changes linearly. that may not be true.
+		calibrationInProgress = true;
 	}
 
 	/*
