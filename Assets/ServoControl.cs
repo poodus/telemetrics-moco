@@ -192,6 +192,8 @@ public class ServoControl : MonoBehaviour
 				sp.NewLine = "\r";
 				StopMovement ();
 				EnableCamera ();
+				panVelocityText.text = "0";
+				tiltVelocityText.text = "0";
 			} catch (Exception) {
 				UnityEditor.EditorUtility.DisplayDialog ("No connection", "Unable to connect. Connect cables, check address, and retry.", "Ok");
 			}	
