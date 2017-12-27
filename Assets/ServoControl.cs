@@ -67,36 +67,47 @@ public class ServoControl : MonoBehaviour
 		Connect ();
 	}
 
+	public float mapControlVoltageToPercent(float input) {
+		float minVel = 0;
+		float maxVel = 32767;
+		float minVelOut = -1000;
+		float maxVelOut = 1000;
+		float result = minVelOut + (maxVelOut - minVelOut) * ((input - minVel) / (maxVel - minVel));
+		print(result);
+		return result;
+	}
+
 	// Main loop
 	public void Update ()
 	{
 		if (portOpened) {
 			// TODO periodically check if packets are being sent/received
-			if (moveRunning) {
-			}
-			// TILT see if slider value has changed
-			else if ((int)tiltSlider.value != lastTiltValue) {
-				print ("tiltSlider.value: " + tiltSlider.value);
-				sp.Write ("T " + (int)tiltSlider.value + "\r");
-				lastTiltValue = (int)tiltSlider.value;
-			}
+			if (!moveRunning) {
 
-			// PAN see if slider value has changed
-			else if ((int)panSlider.value != lastPanValue) {
-				print ("panSlider.value: " + panSlider.value);
-				sp.Write ("P " + (int)panSlider.value + "\r");
-				lastPanValue = (int)panSlider.value;
-			}
+				// TILT see if slider value has changed
+				if ((int)tiltSlider.value != lastTiltValue) {
+					print ("tiltSlider.value: " + tiltSlider.value);
+					sp.Write ("T " + (int)tiltSlider.value + "\r");
+					lastTiltValue = (int)tiltSlider.value;
+					tiltVelocityText.text = "" + (int)mapControlVoltageToPercent (tiltSlider.value);
+				}
 
-			// Get position from device
-			// if more than delay seconds have passed, update position
-			else if ((Time.fixedTime - lastTimePositionUpdated) > delayInSecondsForPositionUpdate) {
-				GetHeadPosition ();	
-				lastTimePositionUpdated = Time.fixedTime;
+				// PAN see if slider value has changed
+				if ((int)panSlider.value != lastPanValue) {
+					print ("panSlider.value: " + panSlider.value);
+					sp.Write ("P " + (int)panSlider.value + "\r");
+					lastPanValue = (int)panSlider.value;
+					panVelocityText.text = "" + (int)mapControlVoltageToPercent (panSlider.value);
+				}
+
+				// Get position from device
+				// if more than delay seconds have passed, update position
+				if ((Time.fixedTime - lastTimePositionUpdated) > delayInSecondsForPositionUpdate) {
+					GetHeadPosition ();	
+					lastTimePositionUpdated = Time.fixedTime;
+				}
 			}
 		}
-
-			
 	}
 
 	/*
@@ -134,8 +145,8 @@ public class ServoControl : MonoBehaviour
 	public void Calibrate ()
 	{
 		print ("CALIBRATE");
-//		// Move to home position so we don't hit limit switches.
-//		MoveToPosition(0, 0, 1);
+
+		// TODO move to known position to avoid hitting limit switches
 
 		// Get current position
 		int[] lastPositions = GetHeadPosition ();
@@ -185,9 +196,9 @@ public class ServoControl : MonoBehaviour
 			panVelocity = Math.Abs((int)(16383 + (panVelocity / maxPanVelocity) * 16383));
 			}
 			if (tiltVelocity < 0) {
-					tiltVelocity = Math.Abs((int)(16383 - (tiltVelocity / maxTiltVelocity) * 16383));
+				tiltVelocity = Math.Abs((int)(16383 - (tiltVelocity / maxTiltVelocity) * 16383));
 			} else {
-					tiltVelocity = Math.Abs((int)(16383 - (tiltVelocity / maxTiltVelocity) * 16383));
+				tiltVelocity = Math.Abs((int)(16383 - (tiltVelocity / maxTiltVelocity) * 16383));
 			}
 	
 			sp.Write ("P " + panVelocity + "T " + tiltVelocity + "\r");
