@@ -3,22 +3,31 @@ using System.Collections.Generic;
 using UnityEngine;
 using System.IO.Ports;
 using UnityEngine.UI;
-using System.Text;
 using System;
-
+using System.Text;
+using System.Text.RegularExpressions;
 /*
  * ServoControl
  * 
  * Controls a Telemetrics PT-LP pan/tilt camera head using the serial protocol
  * established in the user manual. This application lets a user to enter a device address,
- * connect to the device, drive it around, do basic A-B movement, and stop movement.
+ * connect to the device, drive it around with a joystick-like interface, program basic A-B movements, 
+ * and stop the head.
  * 
  */
-using System.Text.RegularExpressions;
+
 
 public class ServoControl : MonoBehaviour
 {
-	// GUI
+	public const int NEG_HEAD_VELOCITY = 0; // control voltage for max speed in one direction
+	public const int NEU_HEAD_VELOCITY = 16383; // control voltage for no movement
+	public const int POS_HEAD_VELOCITY = 32767; // control voltage for max speed in opposite direction
+
+	// Artificial scale used to give the user more generic numbers to work with rahter than 0-32767.
+	public const int NEG_VELOCITY_SCALE = -1000;
+	public const int POS_VELOCITY_SCALE = 1000;
+
+	// GUI elements
 	public Slider tiltSlider;
 	public Slider panSlider;
 	public Text panPositionText;
@@ -39,109 +48,119 @@ public class ServoControl : MonoBehaviour
 	int lastReceivedTiltPosition = 0;
 
 	// Target positions for move
-	int startPanPosition;
-	int startTiltPosition;
-	int endPanPosition;
-	int endTiltPosition;
-	Boolean moveRunning = false;
+	float startPanPosition;
+	float startTiltPosition;
+	float endPanPosition;
+	float endTiltPosition;
 
-	float maxPanVelocity = 1000f;
-	// temp
-	float maxTiltVelocity = 1000f;
-	// temp
+	// Empiraclly determined values for average units/time for each axis.
+	// Note: because of the hardware limitations of this system, exact velocities
+	// can't be expected.
+	float maxPanVelocity = 51.5f;
+	float maxTiltVelocity = 94f;
 
-	float calibMoveDuration = 3.0f;
-	bool calibrationInProgress = false;
+	// Move status
+	float moveDuration = 0f;
+	bool moveRunning = false;
+	bool moveRunningFirstLoop = true;
+	float calibDuration = 5.0f;
+	bool calibrating = false;
 	bool calibrationFirstLoop = true;
-
-	// Time
-	float lastTimePositionUpdated = 0;
+	int calibrationsDone = 0;
+	float lastTimePositionUpdated = 0f;
 	float delayInSecondsForPositionUpdate = 1f;
-
-	SerialPort sp;
-	Boolean portOpened = false;
-	string deviceAddress = "";
-
-	// TODO remove this. for dev purposes only.
-	public void Start ()
-	{
-		deviceAddressInput.text = "/dev/tty.usbserial-FT0EGQ74";
-		Connect ();
-	}
-
-	public float mapControlVoltageToPercent(float input) {
-		float minVel = 0;
-		float maxVel = 32767;
-		float minVelOut = -1000;
-		float maxVelOut = 1000;
-		return minVelOut + (maxVelOut - minVelOut) * ((input - minVel) / (maxVel - minVel));
-	}
 	float counter = 0f;
 	int[] lastPositions;
+
+	// Serial port variables
+	SerialPort sp;
+	bool portOpened = false;
+	string deviceAddress = "";
+	string valRead = "";
+	String[] splitVals;
+	int[] falseReturn = { -1, -1 };
+
 	// Main loop
 	public void Update ()
 	{
 		if (portOpened) {
-			// TODO periodically check if packets are being sent/received
-			if (!moveRunning) {
-
-				// TILT see if slider value has changed
-				if ((int)tiltSlider.value != lastTiltValue) {
-					print ("tiltSlider.value: " + tiltSlider.value);
-					sp.Write ("T " + (int)tiltSlider.value + "\r");
-					lastTiltValue = (int)tiltSlider.value;
-					tiltVelocityText.text = "" + (int)mapControlVoltageToPercent (tiltSlider.value);
+			
+			// Running a move
+			if (moveRunning) {
+				// Setup
+				if (moveRunningFirstLoop) {
+					counter = 0f;
+					moveRunningFirstLoop = false;
 				}
-
-				// PAN see if slider value has changed
-				if ((int)panSlider.value != lastPanValue) {
-					print ("panSlider.value: " + panSlider.value);
-					sp.Write ("P " + (int)panSlider.value + "\r");
-					lastPanValue = (int)panSlider.value;
-					panVelocityText.text = "" + (int)mapControlVoltageToPercent (panSlider.value);
-				}
-
-				// Get position from device
-				// if more than delay seconds have passed, update position
-				if ((Time.fixedTime - lastTimePositionUpdated) > delayInSecondsForPositionUpdate) {
-					GetHeadPosition ();	
-					lastTimePositionUpdated = Time.fixedTime;
+				if (counter < moveDuration) {
+					counter += Time.deltaTime;
+				} else {
+					StopMovement ();
+					moveRunningFirstLoop = true;
 				}
 			}
-			if (calibrationInProgress) {
+
+			// Running a calibration sequence
+			else if (calibrating) {
+				// Setup
 				if (calibrationFirstLoop) {
 					calibrationFirstLoop = false;
 					// Get current position
 					lastPositions = GetHeadPosition ();
-					print ("last positions: " + lastPositions [0] + " " + lastPositions [1]);
 
 					// Move at max speed for moveTime
 					moveRunning = true;
-					sp.Write ("P " + 0 + " T " + 0 + "\r");
-
+					calibrationsDone += 1;
+					// Alternate directions
+					if (calibrationsDone % 2 == 0) {
+						sp.Write ("P " + POS_HEAD_VELOCITY + " T " + POS_HEAD_VELOCITY + "\r");
+					} else {
+						sp.Write ("P " + NEG_HEAD_VELOCITY + " T " + NEG_HEAD_VELOCITY + "\r");
+					}
 					counter = 0f;
 				}
-				// TODO move to known position to avoid hitting limit switches
+				// TODO move to known good position to avoid hitting limit switches
 
-				if(counter < calibMoveDuration) {
+				if(counter < calibDuration) {
 					counter += Time.deltaTime;
-					print ("Time left: " + (calibMoveDuration - counter));
 				}
 				else {
 					StopMovement ();
-					calibrationInProgress = false;
+					calibrating = false;
 					calibrationFirstLoop = true;
 
 					int[] newPositions = GetHeadPosition ();
-					print ("new positions: " + newPositions [0] + " " + newPositions [1]);
 					// calculate max velocities
-					maxPanVelocity = (Math.Abs (lastPositions [0] - newPositions [0]) / calibMoveDuration); // returned as "position units / sec"
-					maxTiltVelocity = (Math.Abs (lastPositions [1] - newPositions [1]) /  calibMoveDuration); // returned as "position units / sec"
-					print ("Max pan velocity: " + maxPanVelocity + " Max tilt velocity: " + maxTiltVelocity);
-					// note: Units/sec is being calculated with a basic averaging, which is assuming that
-					// speed changes linearly. that may not be true.
+					maxPanVelocity = (Math.Abs (lastPositions [0] - newPositions [0]) / calibDuration); // returned as "position units / sec"
+					maxTiltVelocity = (Math.Abs (lastPositions [1] - newPositions [1]) /  calibDuration); // returned as "position units / sec"
+					Debug.unityLogger.Log("New max pan velocity: " + maxPanVelocity + " Max tilt velocity: " + maxTiltVelocity);
 				}
-				
+
+			} 
+
+			// Joystick mode
+			else {
+
+				// PAN see if slider value has changed
+				if ((int)panSlider.value != lastPanValue) {
+					sp.Write ("P " + (int)panSlider.value + "\r");
+					lastPanValue = (int)panSlider.value;
+					panVelocityText.text = "" + (int)mapValues (panSlider.value, NEG_HEAD_VELOCITY, POS_HEAD_VELOCITY, NEG_VELOCITY_SCALE, POS_VELOCITY_SCALE);
+				}
+
+				// TILT see if slider value has changed
+				if ((int)tiltSlider.value != lastTiltValue) {
+					sp.Write ("T " + (int)tiltSlider.value + "\r");
+					lastTiltValue = (int)tiltSlider.value;
+					tiltVelocityText.text = "" + (int)mapValues (tiltSlider.value, NEG_HEAD_VELOCITY, POS_HEAD_VELOCITY, NEG_VELOCITY_SCALE, POS_VELOCITY_SCALE);
+				}
+					
+			}
+
+			// Get position from device
+			if ((Time.fixedTime - lastTimePositionUpdated) > delayInSecondsForPositionUpdate) {
+				GetHeadPosition ();	
+				lastTimePositionUpdated = Time.fixedTime;
 			}
 		}
 	}
@@ -149,12 +168,13 @@ public class ServoControl : MonoBehaviour
 	/*
 	 * Connect()
 	 * 
-	 * Attempts to setup a serial connection with device, using the address
+	 * Attempts to setup a serial connection with device using the address
 	 * entered by the user into the input field.
 	 * 
 	 */
 	public void Connect ()
 	{
+		UnityEngine.Debug.Log ("Connect");
 		// If no address was entered
 		if (deviceAddressInput.text == "") {
 			UnityEditor.EditorUtility.DisplayDialog ("Device address needed", "Please enter a device address and reconnect.", "Ok");
@@ -178,11 +198,6 @@ public class ServoControl : MonoBehaviour
 		}
 	}
 
-	public void Calibrate ()
-	{
-		print ("CALIBRATE");
-		calibrationInProgress = true;
-	}
 
 	/*
 	 * MoveToPosition()
@@ -191,46 +206,59 @@ public class ServoControl : MonoBehaviour
 	 * and working towards an end position over a given duration.
 	 * 
 	 */
-		public void MoveToPosition(int panPosition, int tiltPosition, float moveDuration)
-		{
-			StopMovement ();
-	
-			// Get input from GUI
-			float duration = float.Parse(durationInput.text);
-			endPanPosition = Convert.ToInt32 (panPosition);
-			endTiltPosition = Convert.ToInt32 (endTiltPositionInput);
-	
+	public void MoveToPosition()
+	{
+		// Get input from GUI
+		moveDuration = float.Parse(durationInput.text);
+		endPanPosition = float.Parse (endPanPositionInput.text);
+		endTiltPosition = float.Parse(endTiltPositionInput.text);
+
+		UnityEngine.Debug.Log ("MoveToPosition positions - pan: " + endPanPosition + " tilt: " + endTiltPosition);
+
+		print ("end pan: " + endPanPosition + " end tilt: " + endTiltPosition);
+		if (moveDuration > 0) {
+			
 			// Calculate velocity needed for move in terms of units/sec
-			int panVelocity = (int)((endPanPosition - lastReceivedPanPosition) / duration); // Map from 0-32767
-			int tiltVelocity = (int)((endTiltPosition - lastReceivedTiltPosition) / duration); // Map from 0-32767
-	
-			// Map velocity to the cooresponding serial parameter
+			float panVelocity = (endPanPosition - lastReceivedPanPosition) / moveDuration; // position units / sec
 			if (panVelocity < 0) {
-			panVelocity = Math.Abs((int)(16383 - (panVelocity / maxPanVelocity) * 16383));
+				panVelocity = mapValues (Math.Abs(panVelocity), 0, maxPanVelocity, NEG_HEAD_VELOCITY, NEU_HEAD_VELOCITY);
+			} else if (panVelocity > 0) {
+				panVelocity = mapValues (panVelocity, 0, maxPanVelocity, NEU_HEAD_VELOCITY, POS_HEAD_VELOCITY);
 			} else {
-			panVelocity = Math.Abs((int)(16383 + (panVelocity / maxPanVelocity) * 16383));
+				panVelocity = NEU_HEAD_VELOCITY;
 			}
+
+			float tiltVelocity = (endTiltPosition - lastReceivedTiltPosition) / moveDuration; // position units / sec
 			if (tiltVelocity < 0) {
-				tiltVelocity = Math.Abs((int)(16383 - (tiltVelocity / maxTiltVelocity) * 16383));
+				tiltVelocity = mapValues (Math.Abs(tiltVelocity), 0, maxTiltVelocity, NEG_HEAD_VELOCITY, NEU_HEAD_VELOCITY);
+			} else if (tiltVelocity > 0) {
+				tiltVelocity = mapValues (tiltVelocity, 0, maxTiltVelocity, NEU_HEAD_VELOCITY, POS_HEAD_VELOCITY);
 			} else {
-				tiltVelocity = Math.Abs((int)(16383 - (tiltVelocity / maxTiltVelocity) * 16383));
+				tiltVelocity = NEU_HEAD_VELOCITY;
 			}
-	
-			sp.Write ("P " + panVelocity + "T " + tiltVelocity + "\r");
-			// Wait for move to complete
-			float lastPositionPoll = 0;
-			float pollingInterval = 1;
+
+			// TODO validate if velocities calulated are achievable before starting the move
+
+			UnityEngine.Debug.Log ("MoveToPosition velocities - pan: " + (int)panVelocity + " tilt: " + (int)tiltVelocity);
+			sp.Write ("P " + (int)panVelocity + "T " + (int)tiltVelocity + "\r");
+			EnableCamera ();
 			moveRunning = true;
-			while (duration > 0) {
-				// Poll for position every X m
-				duration -= Time.deltaTime; // in seconds
-			}
-			moveRunning = false;
+
+		} else {
+			print ("Duration must be greater than 0");
 		}
+	}
+
+	public void Calibrate ()
+	{
+		UnityEngine.Debug.Log ("Calibrate");
+		calibrating = true;
+	}
+
 
 	public void StopMovement ()
 	{
-		UnityEngine.Debug.Log ("Stop Movement");
+		UnityEngine.Debug.Log ("StopMovement");
 		// Clear output buffer so command doesn't get delayed
 		sp.DiscardOutBuffer ();
 		// Write stop command
@@ -238,13 +266,13 @@ public class ServoControl : MonoBehaviour
 		// Put sliders at the neutral velocity position
 		panSlider.value = 16383;
 		tiltSlider.value = 16383;
+		// Stop move loop in Update()
 		moveRunning = false;
 	}
 
 	public void EnableCamera ()
 	{
-		// Enable Camera
-		UnityEngine.Debug.Log ("Enable Camera");
+		UnityEngine.Debug.Log ("EnableCamera");
 		sp.Write ("L 1\r");
 	}
 
@@ -255,35 +283,33 @@ public class ServoControl : MonoBehaviour
 		sp.Close ();
 	}
 
-	string valRead = "";
-	int[] falseReturn = { -1, -1 };
-
+	/*
+	 * GetHeadPosition()
+	 * 
+	 * Poll the head for its current pan and tilt positions.
+	 * 
+	 */
 	int[] GetHeadPosition ()
 	{
-		valRead = "";
-
 		// Clear buffers
 		sp.DiscardOutBuffer ();
 		sp.DiscardInBuffer ();
 
 		// Command string "pt\r" will return pan and tilt's positions in one packet
 		sp.WriteLine ("pt\r");
-		float test = Time.fixedTime;
 		valRead = sp.ReadTo ("\r");
-		//print ("valRead: " + valRead);
-		// if correct response was received, validate the packet:
+		splitVals = valRead.Split (' ');
 
-		String[] vals = valRead.Split (' ');
-		if (isValidPosition (vals)) {
-			//print ("Vals: " + vals [0] + " " + vals [1]);
-			// Update interally saved positions
-			lastReceivedPanPosition = Convert.ToInt32 (vals [0]);
-			lastReceivedTiltPosition = Convert.ToInt32 (vals [1]);
+		if (isValidPosition (splitVals)) {
+			// Update global positions
+			lastReceivedPanPosition = Convert.ToInt32 (splitVals [0]);
+			lastReceivedTiltPosition = Convert.ToInt32 (splitVals [1]);
 			// Update GUI
 			tiltPositionText.text = "" + lastReceivedTiltPosition;
 			panPositionText.text = "" + lastReceivedPanPosition;
 			return new int[]{ lastReceivedPanPosition, lastReceivedTiltPosition };
 		} else {
+			UnityEngine.Debug.LogWarning ("Invalid position read");
 			return falseReturn;
 		}
 	}
@@ -292,13 +318,17 @@ public class ServoControl : MonoBehaviour
 	bool isValidPosition (string[] vals)
 	{
 		if (vals.Length >= 2 &&
+			// Regex: composed of one or more digits
 		    Regex.IsMatch (vals [0], @"^[0-9]+$") &&
 		    Regex.IsMatch (vals [1], @"^[0-9]+$")) {
 			return true;
 		} else {
-			print ("INVALID POSITION");
 			return false;
 		}
 	}
-}
 
+	// Map values from one range to another
+	public float mapValues(float input, float minInput, float maxInput, float minOutput, float maxOutput) {
+		return minOutput + (maxOutput - minOutput) * ((input - minInput) / (maxInput - minInput));
+	}
+}
