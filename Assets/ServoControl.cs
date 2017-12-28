@@ -68,7 +68,9 @@ public class ServoControl : MonoBehaviour
 	// Empiraclly determined values for average units/time for each axis.
 	// Note: because of the hardware limitations of this system, velocities are not precise.
 	float maxPanVelocity = 51.5f;
+	float panVelocityAvgAccumulator = 51.5f;
 	float maxTiltVelocity = 94f;
+	float tiltVelocityAvgAccumulator = 94f;
 
 	// Move status
 	float moveDuration = 0f;
@@ -77,7 +79,7 @@ public class ServoControl : MonoBehaviour
 	float calibDuration = 5.0f;
 	bool calibrating = false;
 	bool calibrationFirstLoop = true;
-	int calibrationsDone = 0;
+	int calibrationsDone = 1;
 	float lastTimePositionUpdated = 0f;
 	float delayInSecondsForPositionUpdate = 1f;
 	float counter = 0f;
@@ -96,6 +98,8 @@ public class ServoControl : MonoBehaviour
 	{
 		if (portOpened) {
 
+			UpdateVelocitySliders ();
+
 			/*
 			 * Update position in GUI
 			 */
@@ -113,8 +117,10 @@ public class ServoControl : MonoBehaviour
 					counter = 0f;
 					moveRunningFirstLoop = false;
 				}
+
 				if (counter < moveDuration) {
 					status.text = MOVING_MSG + " - " + Math.Round(moveDuration - counter) + "s left";
+					// check for stop signal
 					if (Input.GetKey(KeyCode.S)) {
 						StopMovement();
 					}
@@ -136,7 +142,6 @@ public class ServoControl : MonoBehaviour
 					lastPositions = GetHeadPosition ();
 
 					// Move at max speed for moveTime
-					moveRunning = true;
 					calibrationsDone += 1;
 					// Alternate directions to (help) avoid hitting limit switches
 					if (calibrationsDone % 2 == 0) {
@@ -144,13 +149,18 @@ public class ServoControl : MonoBehaviour
 					} else {
 						sp.Write ("P " + MAX_NEG_HEAD_VELOCITY + " T " + MAX_NEG_HEAD_VELOCITY + "\r");
 					}
+					status.text = CALIBRATING_MSG;
 					counter = 0f;
 
 					// TODO move to known good position to avoid hitting limit switches
 				}
-
-
+					
 				if (counter < calibDuration) {
+					// check for stop signal
+					if (Input.GetKey(KeyCode.S)) {
+						StopMovement();
+						calibrating = false;
+					}
 					counter += Time.deltaTime;
 				} else {
 					StopMovement ();
@@ -158,10 +168,16 @@ public class ServoControl : MonoBehaviour
 					calibrationFirstLoop = true;
 
 					int[] newPositions = GetHeadPosition ();
+
 					// calculate max velocities as position units (as defined by values given from head) / sec
-					maxPanVelocity = (Math.Abs (lastPositions [0] - newPositions [0]) / calibDuration); 
-					maxTiltVelocity = (Math.Abs (lastPositions [1] - newPositions [1]) / calibDuration);
+					panVelocityAvgAccumulator += (Math.Abs (lastPositions [0] - newPositions [0]) / calibDuration); 
+					tiltVelocityAvgAccumulator += (Math.Abs (lastPositions [1] - newPositions [1]) / calibDuration);
+					maxPanVelocity = panVelocityAvgAccumulator / calibrationsDone;
+					maxTiltVelocity = tiltVelocityAvgAccumulator / calibrationsDone;
 					Debug.unityLogger.Log ("New max pan velocity: " + maxPanVelocity + " Max tilt velocity: " + maxTiltVelocity);
+					UnityEditor.EditorUtility.DisplayDialog ("Calibration complete", 
+						calibrationsDone + " calibrations complete. New values: " + 
+						"pan max velocity: " + maxPanVelocity + " tilt max velocity: " + maxTiltVelocity, "Ok");
 				}
 
 			} 
@@ -197,7 +213,7 @@ public class ServoControl : MonoBehaviour
 					}
 				}
 
-				UpdateVelocitySliders ();
+
 			}
 
 
@@ -265,7 +281,6 @@ public class ServoControl : MonoBehaviour
 			
 			// Calculate velocity needed for move in terms of units/sec, then map to actual control voltage
 			float panVelocity = (endPanPosition - lastReceivedPanPosition) / moveDuration;
-
 			if (panVelocity < 0) {
 				panVelocity = MapValues (Math.Abs(panVelocity), 0, maxPanVelocity, 
 					MAX_NEG_HEAD_VELOCITY, NEU_HEAD_VELOCITY);
@@ -299,7 +314,9 @@ public class ServoControl : MonoBehaviour
 					"pan: " + (int)panVelocity +
 					" tilt: " + (int)tiltVelocity);
 				EnableCamera ();
-				sp.Write ("P " + (int)panVelocity + "T " + (int)tiltVelocity + "\r");
+				sp.Write("P " + (int)panVelocity + "T " + (int)tiltVelocity + "\r");
+				panSlider.value = (int)panVelocity;
+				tiltSlider.value = (int)tiltVelocity;
 				moveRunning = true;
 			}
 
@@ -308,6 +325,8 @@ public class ServoControl : MonoBehaviour
 			UnityEditor.EditorUtility.DisplayDialog("Duration not set", "Move duration wasn't set.", "Ok");
 		}
 	}
+
+
 
 	public bool ValidateMoveSpeeds(int panVelocity, int tiltVelocity) {
 		if (panVelocity > MAX_POS_HEAD_VELOCITY || panVelocity < MAX_NEG_HEAD_VELOCITY ||
@@ -345,7 +364,6 @@ public class ServoControl : MonoBehaviour
 	public void Calibrate ()
 	{
 		UnityEngine.Debug.Log ("Calibrate");
-		status.text = CALIBRATING_MSG;
 		calibrating = true;
 	}
 
