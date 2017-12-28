@@ -27,6 +27,7 @@ public class ServoControl : MonoBehaviour
 
 	// Artificial scale used to give the user more generic numbers to work with rather than 0-32767.
 	public const int MAX_NEG_VELOCITY_SCALE = -1000;
+	public const int NEU_VELOCITY_SCALE = 0;
 	public const int MAX_POS_VELOCITY_SCALE = 1000;
 
 	public const string CONNECTED_MSG = "Connected";
@@ -51,11 +52,11 @@ public class ServoControl : MonoBehaviour
 	public InputField endTiltPositionInput;
 	public InputField durationInput;
 
-	// Slider values
-	int lastTiltValue = 0;
-	int lastPanValue = 0;
+	// Slider values for velocity
+	int lastTiltVelocity = 0;
+	int lastPanVelocity = 0;
 
-	// Position values received from device
+	// Position values received from head
 	int lastReceivedPanPosition = 0;
 	int lastReceivedTiltPosition = 0;
 
@@ -71,11 +72,12 @@ public class ServoControl : MonoBehaviour
 	float panVelocityAvgAccumulator = 51.5f;
 	float maxTiltVelocity = 94f;
 	float tiltVelocityAvgAccumulator = 94f;
+	float panVelocity;
+	float tiltVelocity;
 
 	// Move status
 	float moveDuration = 0f;
 	bool moveRunning = false;
-	bool moveRunningFirstLoop = true;
 	float calibDuration = 5.0f;
 	bool calibrating = false;
 	bool calibrationFirstLoop = true;
@@ -97,9 +99,6 @@ public class ServoControl : MonoBehaviour
 	public void Update ()
 	{
 		if (portOpened) {
-
-			UpdateVelocitySliders ();
-
 			/*
 			 * Update position in GUI
 			 */
@@ -112,12 +111,6 @@ public class ServoControl : MonoBehaviour
 			 * Running a move
 			 */
 			if (moveRunning) {
-				// Setup
-				if (moveRunningFirstLoop) {
-					counter = 0f;
-					moveRunningFirstLoop = false;
-				}
-
 				if (counter < moveDuration) {
 					status.text = MOVING_MSG + " - " + Math.Round(moveDuration - counter) + "s left";
 					// check for stop signal
@@ -126,8 +119,8 @@ public class ServoControl : MonoBehaviour
 					}
 					counter += Time.deltaTime;
 				} else {
+					counter = 0f;
 					StopMovement ();
-					moveRunningFirstLoop = true;
 				}
 			}
 
@@ -138,11 +131,13 @@ public class ServoControl : MonoBehaviour
 				// Setup
 				if (calibrationFirstLoop) {
 					calibrationFirstLoop = false;
+
 					// Get current position
 					lastPositions = GetHeadPosition ();
 
 					// Move at max speed for moveTime
 					calibrationsDone += 1;
+
 					// Alternate directions to (help) avoid hitting limit switches
 					if (calibrationsDone % 2 == 0) {
 						sp.Write ("P " + MAX_POS_HEAD_VELOCITY + " T " + MAX_POS_HEAD_VELOCITY + "\r");
@@ -151,8 +146,6 @@ public class ServoControl : MonoBehaviour
 					}
 					status.text = CALIBRATING_MSG;
 					counter = 0f;
-
-					// TODO move to known good position to avoid hitting limit switches
 				}
 					
 				if (counter < calibDuration) {
@@ -163,13 +156,13 @@ public class ServoControl : MonoBehaviour
 					}
 					counter += Time.deltaTime;
 				} else {
+					counter = 0f;
 					StopMovement ();
 					calibrating = false;
 					calibrationFirstLoop = true;
 
 					int[] newPositions = GetHeadPosition ();
-
-					// calculate max velocities as position units (as defined by values given from head) / sec
+					// calculate new running average
 					panVelocityAvgAccumulator += (Math.Abs (lastPositions [0] - newPositions [0]) / calibDuration); 
 					tiltVelocityAvgAccumulator += (Math.Abs (lastPositions [1] - newPositions [1]) / calibDuration);
 					maxPanVelocity = panVelocityAvgAccumulator / calibrationsDone;
@@ -212,11 +205,8 @@ public class ServoControl : MonoBehaviour
 							? NEU_HEAD_VELOCITY : MAX_NEG_HEAD_VELOCITY;
 					}
 				}
-
-
+				UpdateVelocitySliders ();
 			}
-
-
 		}
 	}
 
@@ -280,7 +270,7 @@ public class ServoControl : MonoBehaviour
 		if (moveDuration > 0) {
 			
 			// Calculate velocity needed for move in terms of units/sec, then map to actual control voltage
-			float panVelocity = (endPanPosition - lastReceivedPanPosition) / moveDuration;
+			panVelocity = (endPanPosition - lastReceivedPanPosition) / moveDuration;
 			if (panVelocity < 0) {
 				panVelocity = MapValues (Math.Abs(panVelocity), 0, maxPanVelocity, 
 					MAX_NEG_HEAD_VELOCITY, NEU_HEAD_VELOCITY);
@@ -291,7 +281,7 @@ public class ServoControl : MonoBehaviour
 				panVelocity = NEU_HEAD_VELOCITY;
 			}
 
-			float tiltVelocity = (endTiltPosition - lastReceivedTiltPosition) / moveDuration;
+			tiltVelocity = (endTiltPosition - lastReceivedTiltPosition) / moveDuration;
 			if (tiltVelocity < 0) {
 				tiltVelocity = MapValues (Math.Abs(tiltVelocity), 
 					0, maxTiltVelocity, 
@@ -314,9 +304,15 @@ public class ServoControl : MonoBehaviour
 					" tilt: " + (int)tiltVelocity);
 				EnableCamera ();
 				sp.Write("P " + (int)panVelocity + "T " + (int)tiltVelocity + "\r");
-//				panSlider.value = (int)panVelocity;
-//				tiltSlider.value = (int)tiltVelocity;
 				moveRunning = true;
+				panSlider.value = (int)panVelocity;
+				panVelocityText.text = "" + (int)MapValues ((int)panVelocity, 
+					MAX_NEG_HEAD_VELOCITY, MAX_POS_HEAD_VELOCITY, 
+					MAX_NEG_VELOCITY_SCALE, MAX_POS_VELOCITY_SCALE);
+				tiltSlider.value = (int)tiltVelocity;
+				tiltVelocityText.text = "" + (int)MapValues ((int)tiltVelocity, 
+					MAX_NEG_HEAD_VELOCITY, MAX_POS_HEAD_VELOCITY, 
+					MAX_NEG_VELOCITY_SCALE, MAX_POS_VELOCITY_SCALE);
 			}
 
 		} else {
@@ -324,9 +320,7 @@ public class ServoControl : MonoBehaviour
 			UnityEditor.EditorUtility.DisplayDialog("Duration not set", "Move duration wasn't set.", "Ok");
 		}
 	}
-
-
-
+		
 	public bool ValidateMoveSpeeds(int panVelocity, int tiltVelocity) {
 		if (panVelocity > MAX_POS_HEAD_VELOCITY || panVelocity < MAX_NEG_HEAD_VELOCITY ||
 		    tiltVelocity > MAX_POS_HEAD_VELOCITY || tiltVelocity < MAX_NEG_HEAD_VELOCITY) {
@@ -337,18 +331,18 @@ public class ServoControl : MonoBehaviour
 
 	public void UpdateVelocitySliders() {
 		// PAN update velocity if slider value has changed
-		if ((int)panSlider.value != lastPanValue) {
+		if ((int)panSlider.value != lastPanVelocity) {
 			sp.Write ("P " + (int)panSlider.value + "\r");
-			lastPanValue = (int)panSlider.value;
+			lastPanVelocity = (int)panSlider.value;
 			panVelocityText.text = "" + (int)MapValues (panSlider.value, 
 				MAX_NEG_HEAD_VELOCITY, MAX_POS_HEAD_VELOCITY, 
 				MAX_NEG_VELOCITY_SCALE, MAX_POS_VELOCITY_SCALE);
 		}
 
 		// TILT update velocity if slider value has changed
-		if ((int)tiltSlider.value != lastTiltValue) {
+		if ((int)tiltSlider.value != lastTiltVelocity) {
 			sp.Write ("T " + (int)tiltSlider.value + "\r");
-			lastTiltValue = (int)tiltSlider.value;
+			lastTiltVelocity = (int)tiltSlider.value;
 			tiltVelocityText.text = "" + (int)MapValues (tiltSlider.value, 
 				MAX_NEG_HEAD_VELOCITY, MAX_POS_HEAD_VELOCITY, 
 				MAX_NEG_VELOCITY_SCALE, MAX_POS_VELOCITY_SCALE);
@@ -389,8 +383,10 @@ public class ServoControl : MonoBehaviour
 		// Write stop command
 		sp.WriteLine ("R\r");
 		// Put sliders at the neutral velocity position
-		panSlider.value = 16383;
-		tiltSlider.value = 16383;
+		panSlider.value = NEU_HEAD_VELOCITY;
+		panVelocityText.text = "" + NEU_VELOCITY_SCALE;
+		tiltSlider.value = NEU_HEAD_VELOCITY;
+		tiltVelocityText.text = "" + NEU_VELOCITY_SCALE;
 		// Stop move loop in Update()
 		moveRunning = false;
 	}
