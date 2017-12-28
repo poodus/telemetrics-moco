@@ -38,6 +38,7 @@ public class ServoControl : MonoBehaviour
 	public Text tiltPositionText;
 	public Text panVelocityText;
 	public Text tiltVelocityText;
+	public Text status;
 	public InputField deviceAddressInput;
 	public InputField endPanPositionInput;
 	public InputField endTiltPositionInput;
@@ -214,7 +215,8 @@ public class ServoControl : MonoBehaviour
 		UnityEngine.Debug.Log ("Connect");
 		// If no address was entered
 		if (deviceAddressInput.text == "") {
-			UnityEditor.EditorUtility.DisplayDialog ("Device address needed", "Please enter a device address and reconnect.", "Ok");
+			UnityEditor.EditorUtility.DisplayDialog ("Device address needed", 
+				"Please enter a device address and reconnect.", "Ok");
 		} else {
 			// Set device name to whatever the user entered
 			// TODO add some validation for address addresses or give a list of connected devices
@@ -232,7 +234,8 @@ public class ServoControl : MonoBehaviour
 				panVelocityText.text = "0";
 				tiltVelocityText.text = "0";
 			} catch (Exception) {
-				UnityEditor.EditorUtility.DisplayDialog ("No connection", "Unable to connect. Connect cables, check address, and retry.", "Ok");
+				UnityEditor.EditorUtility.DisplayDialog ("No connection", 
+					"Unable to connect. Connect cables, check address, and retry.", "Ok");
 			}	
 		}
 	}
@@ -251,33 +254,40 @@ public class ServoControl : MonoBehaviour
 		endPanPosition = float.Parse (endPanPositionInput.text);
 		endTiltPosition = float.Parse (endTiltPositionInput.text);
 
-		UnityEngine.Debug.Log ("MoveToPosition positions - pan: " + endPanPosition + " tilt: " + endTiltPosition);
+		UnityEngine.Debug.Log ("MoveToPosition positions - " +
+			"pan: " + endPanPosition + " tilt: " + endTiltPosition);
 
-		print ("end pan: " + endPanPosition + " end tilt: " + endTiltPosition);
 		if (moveDuration > 0) {
 			
 			// Calculate velocity needed for move in terms of units/sec
-			float panVelocity = (endPanPosition - lastReceivedPanPosition) / moveDuration; // position units / sec
+			float panVelocity = (endPanPosition - lastReceivedPanPosition) / moveDuration;
 			if (panVelocity < 0) {
-				panVelocity = MapValues (Math.Abs (panVelocity), 0, maxPanVelocity, MAX_NEG_HEAD_VELOCITY, NEU_HEAD_VELOCITY);
+				panVelocity = MapValues (Math.Abs (panVelocity), 0, maxPanVelocity, 
+					MAX_NEG_HEAD_VELOCITY, NEU_HEAD_VELOCITY);
 			} else if (panVelocity > 0) {
-				panVelocity = MapValues (panVelocity, 0, maxPanVelocity, NEU_HEAD_VELOCITY, MAX_POS_HEAD_VELOCITY);
+				panVelocity = MapValues (panVelocity, 0, maxPanVelocity, 
+					NEU_HEAD_VELOCITY, MAX_POS_HEAD_VELOCITY);
 			} else {
 				panVelocity = NEU_HEAD_VELOCITY;
 			}
 
-			float tiltVelocity = (endTiltPosition - lastReceivedTiltPosition) / moveDuration; // position units / sec
+			float tiltVelocity = (endTiltPosition - lastReceivedTiltPosition) / moveDuration;
 			if (tiltVelocity < 0) {
-				tiltVelocity = MapValues (Math.Abs (tiltVelocity), 0, maxTiltVelocity, MAX_NEG_HEAD_VELOCITY, NEU_HEAD_VELOCITY);
+				tiltVelocity = MapValues (Math.Abs (tiltVelocity), 
+					0, maxTiltVelocity, 
+					MAX_NEG_HEAD_VELOCITY, NEU_HEAD_VELOCITY);
 			} else if (tiltVelocity > 0) {
-				tiltVelocity = MapValues (tiltVelocity, 0, maxTiltVelocity, NEU_HEAD_VELOCITY, MAX_POS_HEAD_VELOCITY);
+				tiltVelocity = MapValues (tiltVelocity, 0, maxTiltVelocity, 
+					NEU_HEAD_VELOCITY, MAX_POS_HEAD_VELOCITY);
 			} else {
 				tiltVelocity = NEU_HEAD_VELOCITY;
 			}
 
 			// TODO validate if velocities calulated are achievable before starting the move
 
-			UnityEngine.Debug.Log ("MoveToPosition velocities - pan: " + (int)panVelocity + " tilt: " + (int)tiltVelocity);
+			UnityEngine.Debug.Log ("MoveToPosition velocities - " + 
+				"pan: " + (int)panVelocity + 
+				" tilt: " + (int)tiltVelocity);
 			EnableCamera ();
 			sp.Write ("P " + (int)panVelocity + "T " + (int)tiltVelocity + "\r");
 			moveRunning = true;
