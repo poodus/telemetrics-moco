@@ -262,6 +262,7 @@ public class ServoControl : MonoBehaviour
 			
 			// Calculate velocity needed for move in terms of units/sec, then map to actual control voltage
 			float panVelocity = (endPanPosition - lastReceivedPanPosition) / moveDuration;
+
 			if (panVelocity < 0) {
 				panVelocity = MapValues (Math.Abs(panVelocity), 0, maxPanVelocity, 
 					MAX_NEG_HEAD_VELOCITY, NEU_HEAD_VELOCITY);
@@ -273,6 +274,7 @@ public class ServoControl : MonoBehaviour
 			}
 
 			float tiltVelocity = (endTiltPosition - lastReceivedTiltPosition) / moveDuration;
+
 			if (tiltVelocity < 0) {
 				tiltVelocity = MapValues (Math.Abs(tiltVelocity), 
 					0, maxTiltVelocity, 
@@ -283,19 +285,33 @@ public class ServoControl : MonoBehaviour
 			} else {
 				tiltVelocity = NEU_HEAD_VELOCITY;
 			}
-
+				
 			// TODO validate if velocities calulated are achievable before starting the move
-
-			UnityEngine.Debug.Log ("MoveToPosition velocities - " + 
-				"pan: " + (int)panVelocity + 
-				" tilt: " + (int)tiltVelocity);
-			EnableCamera ();
-			sp.Write ("P " + (int)panVelocity + "T " + (int)tiltVelocity + "\r");
-			moveRunning = true;
+			if (!ValidateMoveSpeeds ((int)panVelocity, (int)tiltVelocity)) {
+				UnityEditor.EditorUtility.DisplayDialog ("Move is too fast", 
+					"The head can't move fast enough to do that move. Choose new end positions or increase the move duration", "Ok");
+				return;
+			} else {
+				UnityEngine.Debug.Log ("MoveToPosition velocities - " +
+					"pan: " + (int)panVelocity +
+					" tilt: " + (int)tiltVelocity);
+				EnableCamera ();
+				sp.Write ("P " + (int)panVelocity + "T " + (int)tiltVelocity + "\r");
+				moveRunning = true;
+			}
 
 		} else {
-			print ("Duration must be greater than 0");
+			UnityEngine.Debug.Log ("Move duration wasn't set.");
+			UnityEditor.EditorUtility.DisplayDialog("Duration not set", "Move duration wasn't set.", "Ok");
 		}
+	}
+
+	public bool ValidateMoveSpeeds(int panVelocity, int tiltVelocity) {
+		if (panVelocity > MAX_POS_HEAD_VELOCITY || panVelocity < MAX_NEG_HEAD_VELOCITY ||
+		    tiltVelocity > MAX_POS_HEAD_VELOCITY || tiltVelocity < MAX_NEG_HEAD_VELOCITY) {
+			return false;
+		} else
+			return true;
 	}
 
 	public void UpdateVelocitySliders() {
