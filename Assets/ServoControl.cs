@@ -292,7 +292,6 @@ public class ServoControl : MonoBehaviour
 			}
 
 			float tiltVelocity = (endTiltPosition - lastReceivedTiltPosition) / moveDuration;
-
 			if (tiltVelocity < 0) {
 				tiltVelocity = MapValues (Math.Abs(tiltVelocity), 
 					0, maxTiltVelocity, 
@@ -315,8 +314,8 @@ public class ServoControl : MonoBehaviour
 					" tilt: " + (int)tiltVelocity);
 				EnableCamera ();
 				sp.Write("P " + (int)panVelocity + "T " + (int)tiltVelocity + "\r");
-				panSlider.value = (int)panVelocity;
-				tiltSlider.value = (int)tiltVelocity;
+//				panSlider.value = (int)panVelocity;
+//				tiltSlider.value = (int)tiltVelocity;
 				moveRunning = true;
 			}
 
@@ -365,6 +364,15 @@ public class ServoControl : MonoBehaviour
 	{
 		UnityEngine.Debug.Log ("Calibrate");
 		calibrating = true;
+	}
+
+	/*
+	 * SetCurrentPosAsGoTo()
+	 * 
+	 */
+	public void SetCurrentPosAsGoTo() {
+		endPanPositionInput.text = "" + lastReceivedPanPosition;
+		endTiltPositionInput.text = "" + lastReceivedTiltPosition;
 	}
 
 	/*
@@ -425,7 +433,12 @@ public class ServoControl : MonoBehaviour
 
 		// This command will return pan and tilt's positions in one packet
 		sp.WriteLine ("pt\r");
-		valRead = sp.ReadTo ("\r");
+		try {
+			valRead = sp.ReadTo ("\r");
+		} catch (TimeoutException) {
+			UnityEngine.Debug.LogWarning ("Timeout exception in GetHeadPosition()");
+			return falseReturn;
+		}
 		splitVals = valRead.Split (' ');
 
 		if (IsValidPosition (splitVals)) {
