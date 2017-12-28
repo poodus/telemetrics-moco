@@ -1,4 +1,4 @@
-#Motion Control interface for Telemetrics PT-LP pan/tilt head
+Motion Control interface for Telemetrics PT-LP pan/tilt head
 ==============
 
 A modern interface for old hardware.

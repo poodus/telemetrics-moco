@@ -72,8 +72,6 @@ public class ServoControl : MonoBehaviour
 	float panVelocityAvgAccumulator = 51.5f;
 	float maxTiltVelocity = 94f;
 	float tiltVelocityAvgAccumulator = 94f;
-	float panVelocity;
-	float tiltVelocity;
 
 	// Move status
 	float moveDuration = 0f;
@@ -263,6 +261,7 @@ public class ServoControl : MonoBehaviour
 		moveDuration = float.Parse (durationInput.text);
 		endPanPosition = float.Parse (endPanPositionInput.text);
 		endTiltPosition = float.Parse (endTiltPositionInput.text);
+		print ("Move Duration: " + moveDuration);
 
 		UnityEngine.Debug.Log ("MoveToPosition positions - " +
 			"pan: " + endPanPosition + " tilt: " + endTiltPosition);
@@ -270,28 +269,34 @@ public class ServoControl : MonoBehaviour
 		if (moveDuration > 0) {
 			
 			// Calculate velocity needed for move in terms of units/sec, then map to actual control voltage
-			panVelocity = (endPanPosition - lastReceivedPanPosition) / moveDuration;
+			float panVelocity = (endPanPosition - lastReceivedPanPosition) / moveDuration;
 			if (panVelocity < 0) {
-				panVelocity = MapValues (Math.Abs(panVelocity), 0, maxPanVelocity, 
-					MAX_NEG_HEAD_VELOCITY, NEU_HEAD_VELOCITY);
+				panVelocity = MapValues (Math.Abs(panVelocity), 
+					0, maxPanVelocity, 
+					NEU_HEAD_VELOCITY, MAX_NEG_HEAD_VELOCITY);
 			} else if (panVelocity > 0) {
-				panVelocity = MapValues (panVelocity, 0, maxPanVelocity, 
+				panVelocity = MapValues (panVelocity, 
+					0, maxPanVelocity, 
 					NEU_HEAD_VELOCITY, MAX_POS_HEAD_VELOCITY);
 			} else {
 				panVelocity = NEU_HEAD_VELOCITY;
 			}
+			print ("PAN VELOCITY: " + panVelocity);
 
-			tiltVelocity = (endTiltPosition - lastReceivedTiltPosition) / moveDuration;
+			float tiltVelocity = (endTiltPosition - lastReceivedTiltPosition) / moveDuration;
 			if (tiltVelocity < 0) {
 				tiltVelocity = MapValues (Math.Abs(tiltVelocity), 
 					0, maxTiltVelocity, 
-					MAX_NEG_HEAD_VELOCITY, NEU_HEAD_VELOCITY);
+					NEU_HEAD_VELOCITY, MAX_NEG_HEAD_VELOCITY);
 			} else if (tiltVelocity > 0) {
-				tiltVelocity = MapValues (tiltVelocity, 0, maxTiltVelocity, 
+				tiltVelocity = MapValues (tiltVelocity, 
+					0, maxTiltVelocity, 
 					NEU_HEAD_VELOCITY, MAX_POS_HEAD_VELOCITY);
 			} else {
 				tiltVelocity = NEU_HEAD_VELOCITY;
 			}
+
+			print ("TILT VELOCITY: " + tiltVelocity);
 				
 			// TODO validate if velocities calulated are achievable before starting the move
 			if (!ValidateMoveSpeeds ((int)panVelocity, (int)tiltVelocity)) {
