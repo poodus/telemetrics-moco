@@ -115,6 +115,9 @@ public class ServoControl : MonoBehaviour
 				}
 				if (counter < moveDuration) {
 					status.text = MOVING_MSG + " - " + Math.Round(moveDuration - counter) + "s left";
+					if (Input.GetKey(KeyCode.S)) {
+						StopMovement();
+					}
 					counter += Time.deltaTime;
 				} else {
 					StopMovement ();
