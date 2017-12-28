@@ -20,16 +20,23 @@ using System.Text.RegularExpressions;
 
 public class ServoControl : MonoBehaviour
 {
+	// Control Voltages
 	public const int MAX_NEG_HEAD_VELOCITY = 0;
-	// control voltage for max speed in one direction
 	public const int NEU_HEAD_VELOCITY = 16383;
-	// control voltage for no movement
 	public const int MAX_POS_HEAD_VELOCITY = 32767;
-	// control voltage for max speed in opposite direction
 
-	// Artificial scale used to give the user more generic numbers to work with rahter than 0-32767.
+	// Artificial scale used to give the user more generic numbers to work with rather than 0-32767.
 	public const int MAX_NEG_VELOCITY_SCALE = -1000;
 	public const int MAX_POS_VELOCITY_SCALE = 1000;
+
+	public const string CONNECTED_MSG = "Connected";
+	public const string CONNECTING_MSG = "Connecting...";
+	public const string NOT_CONNECTED_MSG = "Not Connected";
+	public const string MOVING_MSG = "Moving";
+	public const string CALIBRATING_MSG = "Calibrating...";
+	public const string STOP_MSG = "Stopped";
+	public const string QUITTING_MSG = "Quitting";
+
 
 	// GUI elements
 	public Slider tiltSlider;
@@ -59,8 +66,7 @@ public class ServoControl : MonoBehaviour
 	float endTiltPosition;
 
 	// Empiraclly determined values for average units/time for each axis.
-	// Note: because of the hardware limitations of this system, exact velocities
-	// can't be expected.
+	// Note: because of the hardware limitations of this system, velocities are not precise.
 	float maxPanVelocity = 51.5f;
 	float maxTiltVelocity = 94f;
 
@@ -90,7 +96,9 @@ public class ServoControl : MonoBehaviour
 	{
 		if (portOpened) {
 
-			// Get last position from head
+			/*
+			 * Update position in GUI
+			 */
 			if ((Time.fixedTime - lastTimePositionUpdated) > delayInSecondsForPositionUpdate) {
 				GetHeadPosition ();	
 				lastTimePositionUpdated = Time.fixedTime;
@@ -106,6 +114,7 @@ public class ServoControl : MonoBehaviour
 					moveRunningFirstLoop = false;
 				}
 				if (counter < moveDuration) {
+					status.text = MOVING_MSG + " - " + Math.Round(moveDuration - counter) + "s left";
 					counter += Time.deltaTime;
 				} else {
 					StopMovement ();
@@ -182,24 +191,10 @@ public class ServoControl : MonoBehaviour
 					}
 				}
 
-				// PAN update velocity if slider value has changed
-				if ((int)panSlider.value != lastPanValue) {
-					sp.Write ("P " + (int)panSlider.value + "\r");
-					lastPanValue = (int)panSlider.value;
-					panVelocityText.text = "" + (int)MapValues (panSlider.value, 
-						MAX_NEG_HEAD_VELOCITY, MAX_POS_HEAD_VELOCITY, 
-						MAX_NEG_VELOCITY_SCALE, MAX_POS_VELOCITY_SCALE);
-				}
-
-				// TILT update velocity if slider value has changed
-				if ((int)tiltSlider.value != lastTiltValue) {
-					sp.Write ("T " + (int)tiltSlider.value + "\r");
-					lastTiltValue = (int)tiltSlider.value;
-					tiltVelocityText.text = "" + (int)MapValues (tiltSlider.value, 
-						MAX_NEG_HEAD_VELOCITY, MAX_POS_HEAD_VELOCITY, 
-						MAX_NEG_VELOCITY_SCALE, MAX_POS_VELOCITY_SCALE);
-				}
+				UpdateVelocitySliders ();
 			}
+
+
 		}
 	}
 
@@ -218,6 +213,7 @@ public class ServoControl : MonoBehaviour
 			UnityEditor.EditorUtility.DisplayDialog ("Device address needed", 
 				"Please enter a device address and reconnect.", "Ok");
 		} else {
+			status.text = CONNECTING_MSG;
 			// Set device name to whatever the user entered
 			// TODO add some validation for address addresses or give a list of connected devices
 			deviceAddress = deviceAddressInput.text;
@@ -233,7 +229,9 @@ public class ServoControl : MonoBehaviour
 				EnableCamera ();
 				panVelocityText.text = "0";
 				tiltVelocityText.text = "0";
+				status.text = CONNECTED_MSG;
 			} catch (Exception) {
+				status.text = NOT_CONNECTED_MSG;
 				UnityEditor.EditorUtility.DisplayDialog ("No connection", 
 					"Unable to connect. Connect cables, check address, and retry.", "Ok");
 			}	
@@ -259,10 +257,10 @@ public class ServoControl : MonoBehaviour
 
 		if (moveDuration > 0) {
 			
-			// Calculate velocity needed for move in terms of units/sec
+			// Calculate velocity needed for move in terms of units/sec, then map to actual control voltage
 			float panVelocity = (endPanPosition - lastReceivedPanPosition) / moveDuration;
 			if (panVelocity < 0) {
-				panVelocity = MapValues (Math.Abs (panVelocity), 0, maxPanVelocity, 
+				panVelocity = MapValues (Math.Abs(panVelocity), 0, maxPanVelocity, 
 					MAX_NEG_HEAD_VELOCITY, NEU_HEAD_VELOCITY);
 			} else if (panVelocity > 0) {
 				panVelocity = MapValues (panVelocity, 0, maxPanVelocity, 
@@ -273,7 +271,7 @@ public class ServoControl : MonoBehaviour
 
 			float tiltVelocity = (endTiltPosition - lastReceivedTiltPosition) / moveDuration;
 			if (tiltVelocity < 0) {
-				tiltVelocity = MapValues (Math.Abs (tiltVelocity), 
+				tiltVelocity = MapValues (Math.Abs(tiltVelocity), 
 					0, maxTiltVelocity, 
 					MAX_NEG_HEAD_VELOCITY, NEU_HEAD_VELOCITY);
 			} else if (tiltVelocity > 0) {
@@ -297,6 +295,26 @@ public class ServoControl : MonoBehaviour
 		}
 	}
 
+	public void UpdateVelocitySliders() {
+		// PAN update velocity if slider value has changed
+		if ((int)panSlider.value != lastPanValue) {
+			sp.Write ("P " + (int)panSlider.value + "\r");
+			lastPanValue = (int)panSlider.value;
+			panVelocityText.text = "" + (int)MapValues (panSlider.value, 
+				MAX_NEG_HEAD_VELOCITY, MAX_POS_HEAD_VELOCITY, 
+				MAX_NEG_VELOCITY_SCALE, MAX_POS_VELOCITY_SCALE);
+		}
+
+		// TILT update velocity if slider value has changed
+		if ((int)tiltSlider.value != lastTiltValue) {
+			sp.Write ("T " + (int)tiltSlider.value + "\r");
+			lastTiltValue = (int)tiltSlider.value;
+			tiltVelocityText.text = "" + (int)MapValues (tiltSlider.value, 
+				MAX_NEG_HEAD_VELOCITY, MAX_POS_HEAD_VELOCITY, 
+				MAX_NEG_VELOCITY_SCALE, MAX_POS_VELOCITY_SCALE);
+		}
+	}
+
 	/*
 	 * Calibrate()
 	 * 
@@ -305,6 +323,7 @@ public class ServoControl : MonoBehaviour
 	public void Calibrate ()
 	{
 		UnityEngine.Debug.Log ("Calibrate");
+		status.text = CALIBRATING_MSG;
 		calibrating = true;
 	}
 
@@ -316,6 +335,7 @@ public class ServoControl : MonoBehaviour
 	public void StopMovement ()
 	{
 		UnityEngine.Debug.Log ("StopMovement");
+		status.text = "Stopped";
 		// Clear output buffer so command doesn't get delayed
 		sp.DiscardOutBuffer ();
 		// Write stop command
@@ -346,6 +366,7 @@ public class ServoControl : MonoBehaviour
 	void OnApplicationQuit ()
 	{
 		UnityEngine.Debug.Log ("Quit");
+		status.text = QUITTING_MSG;
 		StopMovement ();
 		sp.Close ();
 	}
