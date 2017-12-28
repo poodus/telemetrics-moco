@@ -6,6 +6,7 @@ using UnityEngine.UI;
 using System;
 using System.Text;
 using System.Text.RegularExpressions;
+
 /*
  * ServoControl
  * 
@@ -19,13 +20,16 @@ using System.Text.RegularExpressions;
 
 public class ServoControl : MonoBehaviour
 {
-	public const int NEG_HEAD_VELOCITY = 0; // control voltage for max speed in one direction
-	public const int NEU_HEAD_VELOCITY = 16383; // control voltage for no movement
-	public const int POS_HEAD_VELOCITY = 32767; // control voltage for max speed in opposite direction
+	public const int MAX_NEG_HEAD_VELOCITY = 0;
+	// control voltage for max speed in one direction
+	public const int NEU_HEAD_VELOCITY = 16383;
+	// control voltage for no movement
+	public const int MAX_POS_HEAD_VELOCITY = 32767;
+	// control voltage for max speed in opposite direction
 
 	// Artificial scale used to give the user more generic numbers to work with rahter than 0-32767.
-	public const int NEG_VELOCITY_SCALE = -1000;
-	public const int POS_VELOCITY_SCALE = 1000;
+	public const int MAX_NEG_VELOCITY_SCALE = -1000;
+	public const int MAX_POS_VELOCITY_SCALE = 1000;
 
 	// GUI elements
 	public Slider tiltSlider;
@@ -84,8 +88,16 @@ public class ServoControl : MonoBehaviour
 	public void Update ()
 	{
 		if (portOpened) {
+
+			// Get last position from head
+			if ((Time.fixedTime - lastTimePositionUpdated) > delayInSecondsForPositionUpdate) {
+				GetHeadPosition ();	
+				lastTimePositionUpdated = Time.fixedTime;
+			}
 			
-			// Running a move
+			/*
+			 * Running a move
+			 */
 			if (moveRunning) {
 				// Setup
 				if (moveRunningFirstLoop) {
@@ -100,7 +112,9 @@ public class ServoControl : MonoBehaviour
 				}
 			}
 
-			// Running a calibration sequence
+			/*
+			 * Calibration
+			 */
 			else if (calibrating) {
 				// Setup
 				if (calibrationFirstLoop) {
@@ -111,56 +125,79 @@ public class ServoControl : MonoBehaviour
 					// Move at max speed for moveTime
 					moveRunning = true;
 					calibrationsDone += 1;
-					// Alternate directions
+					// Alternate directions to (help) avoid hitting limit switches
 					if (calibrationsDone % 2 == 0) {
-						sp.Write ("P " + POS_HEAD_VELOCITY + " T " + POS_HEAD_VELOCITY + "\r");
+						sp.Write ("P " + MAX_POS_HEAD_VELOCITY + " T " + MAX_POS_HEAD_VELOCITY + "\r");
 					} else {
-						sp.Write ("P " + NEG_HEAD_VELOCITY + " T " + NEG_HEAD_VELOCITY + "\r");
+						sp.Write ("P " + MAX_NEG_HEAD_VELOCITY + " T " + MAX_NEG_HEAD_VELOCITY + "\r");
 					}
 					counter = 0f;
-				}
-				// TODO move to known good position to avoid hitting limit switches
 
-				if(counter < calibDuration) {
-					counter += Time.deltaTime;
+					// TODO move to known good position to avoid hitting limit switches
 				}
-				else {
+
+
+				if (counter < calibDuration) {
+					counter += Time.deltaTime;
+				} else {
 					StopMovement ();
 					calibrating = false;
 					calibrationFirstLoop = true;
 
 					int[] newPositions = GetHeadPosition ();
-					// calculate max velocities
-					maxPanVelocity = (Math.Abs (lastPositions [0] - newPositions [0]) / calibDuration); // returned as "position units / sec"
-					maxTiltVelocity = (Math.Abs (lastPositions [1] - newPositions [1]) /  calibDuration); // returned as "position units / sec"
-					Debug.unityLogger.Log("New max pan velocity: " + maxPanVelocity + " Max tilt velocity: " + maxTiltVelocity);
+					// calculate max velocities as position units (as defined by values given from head) / sec
+					maxPanVelocity = (Math.Abs (lastPositions [0] - newPositions [0]) / calibDuration); 
+					maxTiltVelocity = (Math.Abs (lastPositions [1] - newPositions [1]) / calibDuration);
+					Debug.unityLogger.Log ("New max pan velocity: " + maxPanVelocity + " Max tilt velocity: " + maxTiltVelocity);
 				}
 
 			} 
 
-			// Joystick mode
+			/*
+			 * Joystick Mode
+			 */
 			else {
+				/*
+				 * Keyboard arrows work as input - up/down for tilt, left/right for pan
+				 * if head is already moving in one direction, pressing the opposite direction
+				 * key will cause the head to stop (hence the ?: conditional operators)
+				 */
+				if (Input.anyKeyDown) {
+					if (Input.GetKey (KeyCode.UpArrow)) {
+						tiltSlider.value = (tiltSlider.value < NEU_HEAD_VELOCITY) 
+							? NEU_HEAD_VELOCITY : MAX_POS_HEAD_VELOCITY;
+					}
+					if (Input.GetKey (KeyCode.DownArrow)) {
+						tiltSlider.value = (tiltSlider.value > NEU_HEAD_VELOCITY) 
+							? NEU_HEAD_VELOCITY : MAX_NEG_HEAD_VELOCITY;
+					}
+					if (Input.GetKey (KeyCode.LeftArrow)) {
+						panSlider.value = (panSlider.value < NEU_HEAD_VELOCITY)
+							? NEU_HEAD_VELOCITY : MAX_POS_HEAD_VELOCITY;
+					}
+					if (Input.GetKey (KeyCode.RightArrow)) {
+						panSlider.value = (panSlider.value > NEU_HEAD_VELOCITY)
+							? NEU_HEAD_VELOCITY : MAX_NEG_HEAD_VELOCITY;
+					}
+				}
 
-				// PAN see if slider value has changed
+				// PAN update velocity if slider value has changed
 				if ((int)panSlider.value != lastPanValue) {
 					sp.Write ("P " + (int)panSlider.value + "\r");
 					lastPanValue = (int)panSlider.value;
-					panVelocityText.text = "" + (int)mapValues (panSlider.value, NEG_HEAD_VELOCITY, POS_HEAD_VELOCITY, NEG_VELOCITY_SCALE, POS_VELOCITY_SCALE);
+					panVelocityText.text = "" + (int)MapValues (panSlider.value, 
+						MAX_NEG_HEAD_VELOCITY, MAX_POS_HEAD_VELOCITY, 
+						MAX_NEG_VELOCITY_SCALE, MAX_POS_VELOCITY_SCALE);
 				}
 
-				// TILT see if slider value has changed
+				// TILT update velocity if slider value has changed
 				if ((int)tiltSlider.value != lastTiltValue) {
 					sp.Write ("T " + (int)tiltSlider.value + "\r");
 					lastTiltValue = (int)tiltSlider.value;
-					tiltVelocityText.text = "" + (int)mapValues (tiltSlider.value, NEG_HEAD_VELOCITY, POS_HEAD_VELOCITY, NEG_VELOCITY_SCALE, POS_VELOCITY_SCALE);
+					tiltVelocityText.text = "" + (int)MapValues (tiltSlider.value, 
+						MAX_NEG_HEAD_VELOCITY, MAX_POS_HEAD_VELOCITY, 
+						MAX_NEG_VELOCITY_SCALE, MAX_POS_VELOCITY_SCALE);
 				}
-					
-			}
-
-			// Get position from device
-			if ((Time.fixedTime - lastTimePositionUpdated) > delayInSecondsForPositionUpdate) {
-				GetHeadPosition ();	
-				lastTimePositionUpdated = Time.fixedTime;
 			}
 		}
 	}
@@ -200,7 +237,6 @@ public class ServoControl : MonoBehaviour
 		}
 	}
 
-
 	/*
 	 * MoveToPosition()
 	 * 
@@ -208,12 +244,12 @@ public class ServoControl : MonoBehaviour
 	 * and working towards an end position over a given duration.
 	 * 
 	 */
-	public void MoveToPosition()
+	public void MoveToPosition ()
 	{
 		// Get input from GUI
-		moveDuration = float.Parse(durationInput.text);
+		moveDuration = float.Parse (durationInput.text);
 		endPanPosition = float.Parse (endPanPositionInput.text);
-		endTiltPosition = float.Parse(endTiltPositionInput.text);
+		endTiltPosition = float.Parse (endTiltPositionInput.text);
 
 		UnityEngine.Debug.Log ("MoveToPosition positions - pan: " + endPanPosition + " tilt: " + endTiltPosition);
 
@@ -223,18 +259,18 @@ public class ServoControl : MonoBehaviour
 			// Calculate velocity needed for move in terms of units/sec
 			float panVelocity = (endPanPosition - lastReceivedPanPosition) / moveDuration; // position units / sec
 			if (panVelocity < 0) {
-				panVelocity = mapValues (Math.Abs(panVelocity), 0, maxPanVelocity, NEG_HEAD_VELOCITY, NEU_HEAD_VELOCITY);
+				panVelocity = MapValues (Math.Abs (panVelocity), 0, maxPanVelocity, MAX_NEG_HEAD_VELOCITY, NEU_HEAD_VELOCITY);
 			} else if (panVelocity > 0) {
-				panVelocity = mapValues (panVelocity, 0, maxPanVelocity, NEU_HEAD_VELOCITY, POS_HEAD_VELOCITY);
+				panVelocity = MapValues (panVelocity, 0, maxPanVelocity, NEU_HEAD_VELOCITY, MAX_POS_HEAD_VELOCITY);
 			} else {
 				panVelocity = NEU_HEAD_VELOCITY;
 			}
 
 			float tiltVelocity = (endTiltPosition - lastReceivedTiltPosition) / moveDuration; // position units / sec
 			if (tiltVelocity < 0) {
-				tiltVelocity = mapValues (Math.Abs(tiltVelocity), 0, maxTiltVelocity, NEG_HEAD_VELOCITY, NEU_HEAD_VELOCITY);
+				tiltVelocity = MapValues (Math.Abs (tiltVelocity), 0, maxTiltVelocity, MAX_NEG_HEAD_VELOCITY, NEU_HEAD_VELOCITY);
 			} else if (tiltVelocity > 0) {
-				tiltVelocity = mapValues (tiltVelocity, 0, maxTiltVelocity, NEU_HEAD_VELOCITY, POS_HEAD_VELOCITY);
+				tiltVelocity = MapValues (tiltVelocity, 0, maxTiltVelocity, NEU_HEAD_VELOCITY, MAX_POS_HEAD_VELOCITY);
 			} else {
 				tiltVelocity = NEU_HEAD_VELOCITY;
 			}
@@ -242,8 +278,8 @@ public class ServoControl : MonoBehaviour
 			// TODO validate if velocities calulated are achievable before starting the move
 
 			UnityEngine.Debug.Log ("MoveToPosition velocities - pan: " + (int)panVelocity + " tilt: " + (int)tiltVelocity);
-			sp.Write ("P " + (int)panVelocity + "T " + (int)tiltVelocity + "\r");
 			EnableCamera ();
+			sp.Write ("P " + (int)panVelocity + "T " + (int)tiltVelocity + "\r");
 			moveRunning = true;
 
 		} else {
@@ -251,13 +287,22 @@ public class ServoControl : MonoBehaviour
 		}
 	}
 
+	/*
+	 * Calibrate()
+	 * 
+	 * Initiates a calibration control loop in Update()
+	 */
 	public void Calibrate ()
 	{
 		UnityEngine.Debug.Log ("Calibrate");
 		calibrating = true;
 	}
 
-
+	/*
+	 * StopMovement()
+	 * 
+	 * Sends a stop signal (R) to the head.
+	 */
 	public void StopMovement ()
 	{
 		UnityEngine.Debug.Log ("StopMovement");
@@ -272,12 +317,22 @@ public class ServoControl : MonoBehaviour
 		moveRunning = false;
 	}
 
+	/*
+	 * EnableCamera()
+	 * 
+	 * Takes control of the head with an L 1 command.
+	 */
 	public void EnableCamera ()
 	{
 		UnityEngine.Debug.Log ("EnableCamera");
 		sp.Write ("L 1\r");
 	}
 
+	/*
+	 * OnApplicationQuit()
+	 * 
+	 * Stops the head and closes the serial port.
+	 */
 	void OnApplicationQuit ()
 	{
 		UnityEngine.Debug.Log ("Quit");
@@ -288,7 +343,7 @@ public class ServoControl : MonoBehaviour
 	/*
 	 * GetHeadPosition()
 	 * 
-	 * Poll the head for its current pan and tilt positions.
+	 * Query the head for its current pan and tilt positions.
 	 * 
 	 */
 	int[] GetHeadPosition ()
@@ -297,13 +352,13 @@ public class ServoControl : MonoBehaviour
 		sp.DiscardOutBuffer ();
 		sp.DiscardInBuffer ();
 
-		// Command string "pt\r" will return pan and tilt's positions in one packet
+		// This command will return pan and tilt's positions in one packet
 		sp.WriteLine ("pt\r");
 		valRead = sp.ReadTo ("\r");
 		splitVals = valRead.Split (' ');
 
-		if (isValidPosition (splitVals)) {
-			// Update global positions
+		if (IsValidPosition (splitVals)) {
+			// Update global position variables
 			lastReceivedPanPosition = Convert.ToInt32 (splitVals [0]);
 			lastReceivedTiltPosition = Convert.ToInt32 (splitVals [1]);
 			// Update GUI
@@ -316,8 +371,13 @@ public class ServoControl : MonoBehaviour
 		}
 	}
 		
-	// Verify that position data received is valid (2 values, only numbers)
-	bool isValidPosition (string[] vals)
+	/*
+	 * IsValidPosition()
+	 * 
+	 * Verify that position data received is of a valid format (2 values, only numbers).
+	 * 
+	 */ 
+	bool IsValidPosition (string[] vals)
 	{
 		if (vals.Length >= 2 &&
 			// Regex: composed of one or more digits
@@ -329,8 +389,14 @@ public class ServoControl : MonoBehaviour
 		}
 	}
 
-	// Map values from one range to another
-	public float mapValues(float input, float minInput, float maxInput, float minOutput, float maxOutput) {
+	/*
+	 * MapValues()
+	 * 
+	 * Map a value from one range to another.
+	 * 
+	 */ 
+	public float MapValues (float input, float minInput, float maxInput, float minOutput, float maxOutput)
+	{
 		return minOutput + (maxOutput - minOutput) * ((input - minInput) / (maxInput - minInput));
 	}
 }
