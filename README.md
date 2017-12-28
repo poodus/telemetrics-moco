@@ -13,4 +13,8 @@ I found one of these camera heads at a surplus store for cheap, and wanted to se
 By using an FTDI USB->serial cable, I was able to connect and send serial commands to the head. I took
 it a few steps further by making this application, which adds A-B movement ideal for timelapse photography.
 
+Keyboard shortcuts:
+Left/Right arrows - toggle pan speed (MAX LEFT, OFF, MAX RIGHT)
+Up/Down arrows - toggle tilt speed (MAX DOWN, OFF, MAX UP)
+S - stop movement
 Made with Unity by Shane Reetz, 2017.

@@ -173,6 +173,9 @@ public class ServoControl : MonoBehaviour
 				 * key will cause the head to stop (hence the ?: conditional operators)
 				 */
 				if (Input.anyKeyDown) {
+					if (Input.GetKey(KeyCode.S)) {
+						StopMovement();
+					}
 					if (Input.GetKey (KeyCode.UpArrow)) {
 						tiltSlider.value = (tiltSlider.value < NEU_HEAD_VELOCITY) 
 							? NEU_HEAD_VELOCITY : MAX_POS_HEAD_VELOCITY;
