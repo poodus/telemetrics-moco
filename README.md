@@ -22,12 +22,14 @@ XLR power cable so I could make a new one, and for the serial protocol. I used a
 cable so I could drive the head with a modern laptop.
 
 
-##Keyboard shortcuts:
+## Keyboard shortcuts:
 -**Left/Right arrows** - toggle pan speed (MAX LEFT, OFF, MAX RIGHT)
+
 -**Up/Down arrows** - toggle tilt speed (MAX DOWN, OFF, MAX UP)
+
 -**S** - stop movement
 
-##Future development / current issues
+## Future development / current issues
 - Deal with rollover if encoders are misaligned (after value 4080, they roll back to 0)
 - Interpolated velocity for ramping up/down at the end of a move
 - Positional accuracy improvements. Moves don't always land at the exact position requested. 
